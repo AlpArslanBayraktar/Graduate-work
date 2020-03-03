@@ -1,0 +1,102 @@
+import math as mth
+import matplotlib.pyplot as plt
+import numpy as np
+
+#Параметры системы
+beta = 0.1
+beta_1 = 4
+a = -1/(beta + beta_1)
+
+#Коэффициенты для закона Джозефсона
+amp_1 = 0.3
+amp_2 = 0.7
+
+#Внешнее сопротивление
+R = 1
+
+#Коэффициенты для метода Рунге-Кутта
+k1 = k2 = k3 = k4 = 0
+m1 = m2 = m3 = m4 = 0
+
+#Фаза \varphi и ее первая производная \cdot{\varphi}
+psi = [0]
+phi = [0]
+
+#Частоты сигналов
+omega_1 = 0.1
+omega_2 = 0.2
+
+#Разность фаз
+phase = 0*np.pi
+
+#Амплитуды сигналов
+A = 0.1
+B = np.arange(0, 0.81, 0.01)
+
+#Функция входящего тока
+def c(x, k):
+    return(A*mth.sin(omega_1*2*np.pi*x) + B[k]*mth.sin(omega_2*2*np.pi*x + phase))
+
+#Сетка
+T = 10000
+tau = 1000/T
+    
+def first_right_part(psi, phi, c):
+    return(a*(psi + amp_1*mth.sin(phi) + amp_2*mth.sin(2*phi) - c))
+    
+def second_right_part(psi):
+    return(psi)
+    
+def runge_kutta_method(k):
+    for i in range(0, T - 1):
+        k1 = first_right_part(psi[i], phi[i], c(i*tau, k))
+        m1 = second_right_part(psi[i])
+        k2 = first_right_part(psi[i] + tau*k1/2, phi[i] + tau*m1/2, c(i*tau + tau/2, k))
+        m2 = second_right_part(psi[i] + tau*k1/2)
+        k3 = first_right_part(psi[i] + tau*k2/2, phi[i] + tau*m2/2, c(i*tau + tau/2, k))
+        m3 = second_right_part(psi[i] + tau*k2/2)
+        k4 = first_right_part(psi[i] + tau*k3, phi[i] + tau*m3, c(i*tau + tau/2, k))
+        m4 = second_right_part(psi[i] + tau*k3)
+        phi.append(phi[i] + tau/6*(m1 + 2*m2 + 2*m3 + m4))
+        psi.append(psi[i] + tau/6*(k1 + 2*k2 + 2*k3 + k4))
+    return(phi, psi)
+
+file1 = open("A, B, fft_signal.txt", "a")
+
+for k in range(0, B.size):
+    ext_current = [] #Входящий ток
+    phi = [0]
+    psi = [0]
+    #Заполнение массива с входящим током
+    for i in range(0, T):
+        ext_current.append(c(i*tau, k))
+
+    phi, psi = runge_kutta_method(k)
+
+    josephson_current = [0] #Ток, протекающий через джозефсоновский контакт
+    josephson_voltage = psi #Напряжение на джозефсоновском контакте и внешнем конденсаторе
+    cond_current = [0] #Ток, протекающий через внешний конденсатор
+
+    for l in range(1, T):
+        cond_current.append(beta_1*(psi[l] - psi[l - 1])/tau)
+        josephson_current.append(ext_current[l] - cond_current[l])
+
+    #График зависимости тока через джозефоновский контакт от времени    
+    t = np.arange(0, tau*T, tau)
+    s = josephson_current
+
+    tau = t[1] - t[0]  # sampling interval 
+    N = len(s)
+
+    fft = 2/N*np.abs(np.fft.fft(s)) #FFT для тока через джозефсоновский контакт
+
+    # 1/T = frequency
+    f = np.arange(0, 1/tau, 1/(tau*N))
+
+    print(k)
+    for i in range(0, 501):
+        if f[i] == omega_1:
+            print(A, B[k], f[i], fft[i])
+            file1.write(str(B[k]) + ' ' + str(fft[i]) + '\n')
+                
+file1.close()
