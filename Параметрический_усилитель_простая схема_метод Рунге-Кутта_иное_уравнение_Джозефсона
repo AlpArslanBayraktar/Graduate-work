@@ -1,0 +1,165 @@
+'''
+Моделирование параметрического усилителя при следующем законе для джозефсоновского тока:
+    I_J = A*sin(\varphi) + B*sin(2*\varphi), при условии что A + B < 1 и |B| > A/2
+'''
+
+import math as mth
+import matplotlib.pyplot as plt
+import numpy as np
+
+file1 = open("josephson_current.txt", "a")
+file2 = open("josephson_voltage.txt", "a")
+file3 = open("fft_josephson_current.txt", "a")
+file4 = open("fft_init.txt", "a")
+file5 = open("fft_P_josephson.txt", "a")
+file6 = open("fft_P_init.txt", "a")
+file7 = open("fft_P_change.txt", "a")
+file8 = open("fft_P_diss.txt", "a")
+
+
+#Параметры системы
+beta = 0.1
+beta1 = 4
+a = -1/(beta + beta1)
+
+#Коэффициенты для закона Джозефсона
+amp_1 = 0.3
+amp_2 = -0.7
+
+#Внешнее сопротивление
+R = 1
+
+#Коэффициенты для метода Рунге-Кутта
+k1 = k2 = k3 = k4 = 0
+m1 = m2 = m3 = m4 = 0
+
+#Фаза \varphi и ее первая производная \cdot{\varphi}
+psi = [0]
+phi = [0]
+
+#Частоты сигналов
+omega_1 = 0.1
+omega_2 = 0.2
+
+#Разность фаз
+phase = 0*np.pi
+
+#Амплитуды сигналов
+A = 0.1
+B = 0.8
+
+#Функция входящего тока
+def c(x):
+    return(A*mth.sin(omega_1*2*np.pi*x) + B*mth.sin(omega_2*2*np.pi*x + phase))
+
+#Сетка
+T = 10000
+tau = 1000/T
+    
+def first_right_part(psi, phi, c):
+    return(a*(psi + amp_1*mth.sin(phi) + amp_2*mth.sin(2*phi) - c))
+    
+def second_right_part(psi):
+    return(psi)
+    
+def runge_kutta_method():
+    for i in range(0, T - 1):
+        k1 = first_right_part(psi[i], phi[i], c(i*tau))
+        m1 = second_right_part(psi[i])
+        k2 = first_right_part(psi[i] + tau*k1/2, phi[i] + tau*m1/2, c(i*tau + tau/2))
+        m2 = second_right_part(psi[i] + tau*k1/2)
+        k3 = first_right_part(psi[i] + tau*k2/2, phi[i] + tau*m2/2, c(i*tau + tau/2))
+        m3 = second_right_part(psi[i] + tau*k2/2)
+        k4 = first_right_part(psi[i] + tau*k3, phi[i] + tau*m3, c(i*tau + tau/2))
+        m4 = second_right_part(psi[i] + tau*k3)
+        phi.append(phi[i] + tau/6*(m1 + 2*m2 + 2*m3 + m4))
+        psi.append(psi[i] + tau/6*(k1 + 2*k2 + 2*k3 + k4))
+    return(phi, psi)
+
+ext_current = [] #Входящий ток
+
+#Заполнение массива с входящим током
+for i in range(0, T):
+    ext_current.append(c(i*tau))
+
+phi, psi = runge_kutta_method()
+
+josephson_current = [0] #Ток, протекающий через джозефсоновский контакт
+josephson_voltage = psi #Напряжение на джозефсоновском контакте и внешнем конденсаторе
+cond_current = [0] #Ток, протекающий через внешний конденсатор
+
+for k in range(1, T):
+    cond_current.append(beta1*(psi[k] - psi[k - 1])/tau)
+    josephson_current.append(ext_current[k] - cond_current[k])
+
+P_josephson = [] #Мощность тока, протекающего через джозефсоновский контакт
+P_cond = [] #Мощность тока, протекающего через конденсатор
+P_init = [] #Мощность начального тока 
+P_diss = [] #Мощность диссипаций
+#P_final = [] #Мощность выходящего тока
+P_change = [] #Разность мощности начального тока и тока, протекающего через джозефсоновский контакт
+
+#Заполнение массивов, связанных с мощностями
+for k in range(0, T):
+    P_josephson.append(josephson_current[k] * josephson_voltage[k])
+    P_cond.append(cond_current[k] * josephson_voltage[k])    
+    P_init.append(ext_current[k]**2 * R)
+    P_diss.append(psi[k]**2)
+    #P_init.append(ext_current_massive[k]**2)
+    #P_final.append((josephson_current[k] + cond_current[k])*josephson_voltage[k])
+
+#График зависимости тока через джозефоновский контакт от времени    
+t = np.arange(0, tau*T, tau)
+s = josephson_current
+plt.ylabel("Amplitude")
+plt.xlabel("Time [s]")
+plt.plot(t, s)
+plt.show()
+
+tau = t[1] - t[0]  # sampling interval 
+N = len(s)
+
+fft = 2/N*np.abs(np.fft.fft(s)) #FFT для тока через джозефсоновский контакт
+fft_init = 2/N*np.abs(np.fft.fft(ext_current)) #FFT для входящего тока
+fft_P_josephson = 2/N*np.abs(np.fft.fft(P_josephson)) #FFT для мощности тока через джозефсоновский контакт
+fft_P_cond = 2/N*np.abs(np.fft.fft(P_cond)) #FFT для мощности тока через конденсатор
+fft_P_init = 2/N*np.abs(np.fft.fft(P_init)) #FFT для мощности входящего тока
+fft_P_diss = 2/N*np.abs(np.fft.fft(P_diss))
+#fft_P_final = 2/N*np.abs(np.fft.fft(P_final)) #FFT для мощности выходящего тока
+#fft_V = 2/N*np.abs(np.fft.fft(josephson_voltage)) #FFT для напряжения
+
+#Заполнение массива P_change 
+for k in range(0, T):
+    P_change.append(fft_P_init[k] - fft_P_josephson[k])
+    
+# 1/T = frequency
+f = np.arange(0, 1/tau, 1/(tau*N))
+
+for i in range(0, N):
+    #s = fft[i]*np.sin(2*np.pi*f[i]*t) * 1/N
+    #plt.plot(t, s)
+    if f[i] == omega_1 or f[i] == omega_2:
+        print(fft[i], f[i])
+
+#Запись данных в текстовом формате
+for i in range(0, T):
+    file1.write(str(t[i]) + ' ' + str(josephson_current[i]) + '\n')
+    file2.write(str(t[i]) + ' ' + str(josephson_voltage[i]) + '\n')
+
+for i in range(0, N // 2):
+    file3.write(str(f[i]) + ' ' + str(fft[i]) + '\n')
+    file4.write(str(f[i]) + ' ' + str(fft_init[i]) + '\n')
+    file5.write(str(f[i]) + ' ' + str(fft_P_josephson[i]) + '\n')
+    file6.write(str(f[i]) + ' ' + str(fft_P_init[i]) + '\n')
+    file7.write(str(f[i]) + ' ' + str(P_change[i]) + '\n')
+    file8.write(str(f[i]) + ' ' + str(fft_P_diss[i]) + '\n')
+    
+
+file1.close()
+file2.close()
+file3.close()
+file4.close()
+file5.close()
+file6.close()
+file7.close()
+file8.close()
